@@ -1,0 +1,84 @@
+name: Build SwasthyaGrid Demo APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build SwasthyaGrid Android Demo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Extract project ZIP
+        shell: bash
+        run: |
+          set -e
+          ZIP=$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)
+          if [ -z "$ZIP" ]; then
+            echo "Project ZIP not found in repository root."
+            exit 1
+          fi
+          mkdir -p extracted
+          unzip -q "$ZIP" -d extracted
+          PROJECT=$(find extracted -name package.json -not -path '*/node_modules/*' | head -n 1 | xargs dirname)
+          if [ -z "$PROJECT" ]; then
+            echo "package.json not found inside uploaded ZIP."
+            exit 1
+          fi
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+          echo "Building project at $PROJECT"
+
+      - name: Install dependencies
+        run: |
+          cd "$PROJECT"
+          npm install --legacy-peer-deps
+
+      - name: Build web app
+        run: |
+          cd "$PROJECT"
+          npm run build
+          test -d dist
+
+      - name: Create Android project
+        run: |
+          cd "$PROJECT"
+          npx cap add android
+          npx cap sync android
+
+      - name: Build debug APK
+        run: |
+          cd "$PROJECT/android"
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Verify APK
+        run: |
+          APK="$PROJECT/android/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK"
+          ls -lh "$APK"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwasthyaGrid-Demo-APK
+          path: ${{ env.PROJECT }}/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
