@@ -1,0 +1,77 @@
+
+name: Build SwasthyaGrid Demo APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android Demo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Extract Project ZIP
+        run: |
+          set -e
+          ZIP=$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)
+          test -n "$ZIP"
+          mkdir extracted
+          unzip -q "$ZIP" -d extracted
+          PROJECT=$(find extracted -name package.json -not -path '*/node_modules/*' | head -n 1 | xargs dirname)
+          test -n "$PROJECT"
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+
+      - name: Install Dependencies
+        run: |
+          cd "$PROJECT"
+          npm install --legacy-peer-deps
+
+      - name: Build Web Application
+        run: |
+          cd "$PROJECT"
+          npm run build
+          test -d dist
+
+      - name: Configure Android
+        run: |
+          cd "$PROJECT"
+          npx cap add android
+          npx cap sync android
+
+      - name: Build APK
+        run: |
+          cd "$PROJECT/android"
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Verify APK
+        run: |
+          test -f "$PROJECT/android/app/build/outputs/apk/debug/app-debug.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwasthyaGrid-Demo-APK
+          path: ${{ env.PROJECT }}/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
